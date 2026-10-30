@@ -345,7 +345,23 @@ private:
         {
             json << ",\"completed_at\":null";
         }
-        if (record.deviceInformation)
+        if (record.pairedDevices)
+        {
+            json << ",\"data\":[";
+            for (std::size_t i = 0; i < record.pairedDevices->size(); ++i)
+            {
+                if (i != 0)
+                {
+                    json << ',';
+                }
+                const PairedDevice& device = (*record.pairedDevices)[i];
+                json << "{\"camera_id\":\"" << jsonEscape(device.cameraId)
+                     << "\",\"ip_address\":\"" << jsonEscape(device.ipAddress)
+                     << "\"}";
+            }
+            json << ']';
+        }
+        else if (record.deviceInformation)
         {
             const DeviceInformation& info = *record.deviceInformation;
             json << ",\"data\":{\"manufacturer\":\"" << jsonEscape(info.manufacturer)
@@ -466,45 +482,79 @@ private:
         }
         const auto cameraField = fields.find("camera_id");
         const auto operationField = fields.find("operation");
-        if (cameraField == fields.end() || operationField == fields.end())
+        const bool pairedDevicesOperation =
+            operationField != fields.end()
+            && operationField->second
+            && trim(*operationField->second) == "GetCurrentPairedDevices";
+        std::string cameraId;
+        std::string operation;
+
+        if (pairedDevicesOperation)
         {
-            return errorResponse(400, "MISSING_FIELD",
-                                 "Required fields are camera_id and operation");
+            operation = trim(*operationField->second);
+            if (cameraField != fields.end() && !cameraField->second)
+            {
+                return errorResponse(400, "INVALID_FIELD_TYPE",
+                                     "camera_id must be a JSON string");
+            }
+            if (cameraField != fields.end())
+            {
+                cameraId = trim(*cameraField->second);
+                if (cameraId.empty())
+                {
+                    return errorResponse(400, "INVALID_FIELD",
+                                         "camera_id must not be empty");
+                }
+            }
         }
-        if (!cameraField->second || !operationField->second)
+        else
         {
-            return errorResponse(400, "INVALID_FIELD_TYPE",
-                                 "camera_id and operation must be JSON strings");
-        }
-        const std::string cameraId = trim(*cameraField->second);
-        const std::string operation = trim(*operationField->second);
-        if (cameraId.empty() || operation.empty())
-        {
-            return errorResponse(400, "INVALID_FIELD",
-                                 "camera_id and operation must not be empty");
+            if (cameraField == fields.end() || operationField == fields.end())
+            {
+                return errorResponse(400, "MISSING_FIELD",
+                                     "Required fields are camera_id and operation");
+            }
+            if (!cameraField->second || !operationField->second)
+            {
+                return errorResponse(400, "INVALID_FIELD_TYPE",
+                                     "camera_id and operation must be JSON strings");
+            }
+            cameraId = trim(*cameraField->second);
+            operation = trim(*operationField->second);
+            if (cameraId.empty() || operation.empty())
+            {
+                return errorResponse(400, "INVALID_FIELD",
+                                     "camera_id and operation must not be empty");
+            }
         }
 
         const bool recognized = operation == "GetDeviceInformation"
-            || operation == "GetProfiles" || operation == "GetPTZCapabilities";
+            || operation == "GetProfiles" || operation == "GetPTZCapabilities"
+            || operation == "GetCurrentPairedDevices";
         if (!recognized)
         {
             return errorResponse(422, "UNKNOWN_OPERATION",
                                  "Unrecognized operation: " + operation);
         }
-        if (operation != "GetDeviceInformation")
+        if (operation == "GetProfiles" || operation == "GetPTZCapabilities")
         {
             return errorResponse(501, "UNSUPPORTED_OPERATION",
-                                 operation + " is recognized but not implemented");
+                operation + " is recognized but not implemented");
         }
 
-        const auto device = devices.find(cameraId);
-        if (!device)
+        std::string endpoint;
+        if (operation != "GetCurrentPairedDevices")
         {
-            return errorResponse(404, "UNKNOWN_CAMERA",
-                                 "No configured camera has ID " + cameraId);
+            const auto device = devices.find(cameraId);
+            if (!device)
+            {
+                return errorResponse(404, "UNKNOWN_CAMERA",
+                                     "No configured camera has ID " + cameraId);
+            }
+            endpoint = device->endpoint;
         }
 
-        Command command{makeRequestId(), cameraId, operation, device->endpoint};
+        Command command{makeRequestId(), cameraId, operation, endpoint};
         resultStore.addQueued(command);
         if (!commandQueue.push(command))
         {

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 struct DeviceInformation
 {
@@ -12,10 +14,17 @@ struct DeviceInformation
     std::string hardwareId;
 };
 
+struct PairedDevice
+{
+    std::string cameraId;
+    std::string ipAddress;
+};
+
 struct OperationResult
 {
     bool succeeded = false;
     DeviceInformation deviceInformation;
+    std::optional<std::vector<PairedDevice>> pairedDevices;
     std::string errorCategory;
     std::string errorMessage;
 
@@ -24,6 +33,14 @@ struct OperationResult
         OperationResult result;
         result.succeeded = true;
         result.deviceInformation = std::move(information);
+        return result;
+    }
+
+    static OperationResult pairedDevicesSuccess(std::vector<PairedDevice> devices)
+    {
+        OperationResult result;
+        result.succeeded = true;
+        result.pairedDevices = std::move(devices);
         return result;
     }
 

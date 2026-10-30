@@ -1,4 +1,5 @@
 *.exe
 *.obj
 *.o
+comms.db
 build/

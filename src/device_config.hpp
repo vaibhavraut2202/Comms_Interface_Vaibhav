@@ -4,6 +4,8 @@
 #include <string>
 #include <unordered_map>
 
+inline constexpr char configuredCameraIpAddress[] = "172.16.10.23";
+
 struct DeviceConfig
 {
     std::string cameraId;

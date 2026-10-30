@@ -6,6 +6,7 @@
 #include <string>
 
 #include "command_queue.hpp"
+#include "database.hpp"
 #include "device_config.hpp"
 #include "dispatcher.hpp"
 #include "result_store.hpp"
@@ -95,9 +96,11 @@ int main(int argc, char* argv[])
     {
         WinsockRuntime winsock;
         DeviceRegistry devices(cameraEndpoint);
+        Database database;
+        database.initialize();
         CommandQueue commandQueue;
         ResultStore resultStore;
-        Dispatcher dispatcher;
+        Dispatcher dispatcher(database);
         Worker worker(commandQueue, dispatcher, resultStore);
         HttpServer server(serverConfig, devices, commandQueue, resultStore);
 

@@ -41,6 +41,7 @@ struct CommandRecord
     std::string operation;
     RequestStatus status = RequestStatus::queued;
     std::optional<DeviceInformation> deviceInformation;
+    std::optional<std::vector<PairedDevice>> pairedDevices;
     std::string errorCategory;
     std::string errorMessage;
     std::chrono::system_clock::time_point createdAt;
@@ -93,6 +94,7 @@ public:
         if (result.succeeded)
         {
             record->second.deviceInformation = std::move(result.deviceInformation);
+            record->second.pairedDevices = std::move(result.pairedDevices);
         }
         else
         {
