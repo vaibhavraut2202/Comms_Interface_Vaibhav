@@ -7,20 +7,23 @@ A C++ communication layer for camera commands.
 The application exposes an HTTP API bound to loopback by default
 (`127.0.0.1:8090`); the bind address is configurable. The API has no
 authentication, so keep it on loopback or a trusted network.
-`POST /command` accepts JSON requests. A valid request receives HTTP `202` with
-a request ID and `QUEUED` status; work proceeds asynchronously through the
-command queue, worker, dispatcher, and result store.
+`POST /command` accepts JSON request bodies. Any request with a supported HTTP
+content type and a complete, size-limited body receives HTTP `202` with a
+request ID and `QUEUED` status when it is added to the command queue. The worker
+then parses and validates the JSON and performs the requested operation.
+Malformed or invalid business requests are therefore accepted first and later
+appear as `FAILED` results when queried by request ID.
 
 ```json
 {"camera_id":"CAM_007","operation":"GetDeviceInformation"}
 ```
 
-`GetDeviceInformation` communicates with the configured camera at
-`http://172.16.10.23:8080/`. After a successful ONVIF response, the application
-inserts or updates that camera in `comms.db` with the temporary configured IP
-address `172.16.10.23`. The IP address is not read from the ONVIF response. A
-database write failure makes the result `FAILED` with a `DATABASE_ERROR`;
-ONVIF failures do not create or update a paired-device record.
+`GetDeviceInformation` requires a valid `camera_id` and communicates with the
+configured camera at `http://172.16.10.23:8080/`. After a successful ONVIF
+response, the application inserts or updates that camera in `comms.db` with the
+temporary configured IP address `172.16.10.23`. The IP address is not read from
+the ONVIF response. A database write failure makes the result `FAILED` with a
+`DATABASE_ERROR`; ONVIF failures do not create or update a paired-device record.
 
 To list paired devices without contacting a camera, send:
 

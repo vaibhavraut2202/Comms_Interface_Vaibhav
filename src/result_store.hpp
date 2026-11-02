@@ -67,6 +67,19 @@ public:
         records.emplace(record.requestId, std::move(record));
     }
 
+    void updateCommandDetails(const std::string& requestId,
+                              const std::string& cameraId,
+                              const std::string& operation)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        const auto record = records.find(requestId);
+        if (record != records.end())
+        {
+            record->second.cameraId = cameraId;
+            record->second.operation = operation;
+        }
+    }
+
     bool markProcessing(const std::string& requestId)
     {
         std::lock_guard<std::mutex> lock(mutex);

@@ -23,7 +23,6 @@
 
 #include "command.hpp"
 #include "command_queue.hpp"
-#include "device_config.hpp"
 #include "json_utils.hpp"
 #include "result_store.hpp"
 
@@ -80,7 +79,6 @@ private:
     static std::atomic<std::uint64_t> nextRequestId;
 
     HttpServerConfig config;
-    const DeviceRegistry& devices;
     CommandQueue& commandQueue;
     ResultStore& resultStore;
 
@@ -473,95 +471,35 @@ private:
                                  "POST requests require Content-Length");
         }
 
-        std::map<std::string, std::optional<std::string>> fields;
-        std::string parseError;
-        JsonObjectParser parser(request.body);
-        if (!parser.parse(fields, parseError))
-        {
-            return errorResponse(400, "MALFORMED_JSON", parseError);
-        }
-        const auto cameraField = fields.find("camera_id");
-        const auto operationField = fields.find("operation");
-        const bool pairedDevicesOperation =
-            operationField != fields.end()
-            && operationField->second
-            && trim(*operationField->second) == "GetCurrentPairedDevices";
-        std::string cameraId;
-        std::string operation;
-
-        if (pairedDevicesOperation)
-        {
-            operation = trim(*operationField->second);
-            if (cameraField != fields.end() && !cameraField->second)
-            {
-                return errorResponse(400, "INVALID_FIELD_TYPE",
-                                     "camera_id must be a JSON string");
-            }
-            if (cameraField != fields.end())
-            {
-                cameraId = trim(*cameraField->second);
-                if (cameraId.empty())
-                {
-                    return errorResponse(400, "INVALID_FIELD",
-                                         "camera_id must not be empty");
-                }
-            }
-        }
-        else
-        {
-            if (cameraField == fields.end() || operationField == fields.end())
-            {
-                return errorResponse(400, "MISSING_FIELD",
-                                     "Required fields are camera_id and operation");
-            }
-            if (!cameraField->second || !operationField->second)
-            {
-                return errorResponse(400, "INVALID_FIELD_TYPE",
-                                     "camera_id and operation must be JSON strings");
-            }
-            cameraId = trim(*cameraField->second);
-            operation = trim(*operationField->second);
-            if (cameraId.empty() || operation.empty())
-            {
-                return errorResponse(400, "INVALID_FIELD",
-                                     "camera_id and operation must not be empty");
-            }
-        }
-
-        const bool recognized = operation == "GetDeviceInformation"
-            || operation == "GetProfiles" || operation == "GetPTZCapabilities"
-            || operation == "GetCurrentPairedDevices";
-        if (!recognized)
-        {
-            return errorResponse(422, "UNKNOWN_OPERATION",
-                                 "Unrecognized operation: " + operation);
-        }
-        if (operation == "GetProfiles" || operation == "GetPTZCapabilities")
-        {
-            return errorResponse(501, "UNSUPPORTED_OPERATION",
-                operation + " is recognized but not implemented");
-        }
-
-        std::string endpoint;
-        if (operation != "GetCurrentPairedDevices")
-        {
-            const auto device = devices.find(cameraId);
-            if (!device)
-            {
-                return errorResponse(404, "UNKNOWN_CAMERA",
-                                     "No configured camera has ID " + cameraId);
-            }
-            endpoint = device->endpoint;
-        }
-
-        Command command{makeRequestId(), cameraId, operation, endpoint};
+        Command command;
+        command.requestId = makeRequestId();
+        command.rawRequestBody = request.body;
         resultStore.addQueued(command);
-        if (!commandQueue.push(command))
+        try
         {
+            if (!commandQueue.push(command))
+            {
+                resultStore.complete(command.requestId, OperationResult::failure(
+                    "SERVER_SHUTDOWN", "Application is shutting down"));
+                return errorResponse(503, "SERVER_SHUTDOWN",
+                                     "Application is no longer accepting commands");
+            }
+        }
+        catch (const std::exception& error)
+        {
+            std::cerr << "[HTTP] Unable to enqueue request " << command.requestId
+                      << ": " << error.what() << std::endl;
             resultStore.complete(command.requestId, OperationResult::failure(
-                "SERVER_SHUTDOWN", "Application is shutting down"));
-            return errorResponse(503, "SERVER_SHUTDOWN",
-                                 "Application is no longer accepting commands");
+                "QUEUE_ERROR", "Unable to enqueue request"));
+            return errorResponse(503, "QUEUE_ERROR", "Unable to enqueue request");
+        }
+        catch (...)
+        {
+            std::cerr << "[HTTP] Unable to enqueue request " << command.requestId
+                      << ": unknown exception" << std::endl;
+            resultStore.complete(command.requestId, OperationResult::failure(
+                "QUEUE_ERROR", "Unable to enqueue request"));
+            return errorResponse(503, "QUEUE_ERROR", "Unable to enqueue request");
         }
 
         HttpResponse response;
@@ -670,10 +608,9 @@ private:
     }
 
 public:
-    HttpServer(const HttpServerConfig& serverConfig, const DeviceRegistry& deviceRegistry,
-               CommandQueue& queue, ResultStore& results)
+    HttpServer(const HttpServerConfig& serverConfig, CommandQueue& queue,
+               ResultStore& results)
         : config(serverConfig),
-          devices(deviceRegistry),
           commandQueue(queue),
           resultStore(results)
     {

@@ -101,8 +101,8 @@ int main(int argc, char* argv[])
         CommandQueue commandQueue;
         ResultStore resultStore;
         Dispatcher dispatcher(database);
-        Worker worker(commandQueue, dispatcher, resultStore);
-        HttpServer server(serverConfig, devices, commandQueue, resultStore);
+        Worker worker(commandQueue, dispatcher, resultStore, devices);
+        HttpServer server(serverConfig, commandQueue, resultStore);
 
         worker.start();
         const int serverResult = server.run(shutdownRequested);
