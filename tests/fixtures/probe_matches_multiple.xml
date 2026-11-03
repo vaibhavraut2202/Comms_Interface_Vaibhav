@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+            xmlns:a="http://www.w3.org/2005/08/addressing"
+            xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery"
+            xmlns:dn="http://www.onvif.org/ver10/network/wsdl"
+            xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
+  <s:Body>
+    <d:ProbeMatches>
+      <d:ProbeMatch>
+        <a:EndpointReference><a:Address>urn:uuid:11111111-2222-3333-4444-555555555555</a:Address></a:EndpointReference>
+        <d:Types>dn:NetworkVideoTransmitter tds:Device</d:Types>
+        <d:Scopes>onvif://www.onvif.org/type/video_encoder onvif://www.onvif.org/name/FrontDoor</d:Scopes>
+        <d:XAddrs>http://192.0.2.10/onvif/device_service http://192.0.2.10/onvif/alternate</d:XAddrs>
+        <d:MetadataVersion>4</d:MetadataVersion>
+      </d:ProbeMatch>
+      <d:ProbeMatch>
+        <a:EndpointReference><a:Address>urn:uuid:11111111-2222-3333-4444-555555555555</a:Address></a:EndpointReference>
+        <d:Types>dn:NetworkVideoTransmitter</d:Types>
+        <d:Scopes>onvif://www.onvif.org/name/FrontDoor</d:Scopes>
+        <d:XAddrs>http://192.0.2.10/onvif/device_service http://192.0.2.10/onvif/backup</d:XAddrs>
+        <d:MetadataVersion>5</d:MetadataVersion>
+      </d:ProbeMatch>
+      <d:ProbeMatch>
+        <a:EndpointReference><a:Address>urn:uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</a:Address></a:EndpointReference>
+        <d:Types>dn:NetworkVideoTransmitter</d:Types>
+        <d:Scopes>onvif://www.onvif.org/name/SideGate</d:Scopes>
+        <d:XAddrs>http://192.0.2.11/onvif/device_service</d:XAddrs>
+        <d:MetadataVersion>2</d:MetadataVersion>
+      </d:ProbeMatch>
+    </d:ProbeMatches>
+  </s:Body>
+</s:Envelope>

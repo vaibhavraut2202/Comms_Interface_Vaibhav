@@ -1,8 +1,11 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
+#include <iostream>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -37,11 +40,13 @@ inline const char* statusName(RequestStatus status)
 struct CommandRecord
 {
     std::string requestId;
+    std::optional<std::string> mqttCorrelationId;
     std::string cameraId;
     std::string operation;
     RequestStatus status = RequestStatus::queued;
     std::optional<DeviceInformation> deviceInformation;
     std::optional<std::vector<PairedDevice>> pairedDevices;
+    std::optional<DiscoverySummary> discoverySummary;
     std::string errorCategory;
     std::string errorMessage;
     std::chrono::system_clock::time_point createdAt;
@@ -51,20 +56,33 @@ struct CommandRecord
 class ResultStore
 {
 private:
+    using CompletionCallback = std::function<void(const CommandRecord&)>;
+
     mutable std::mutex mutex;
     std::unordered_map<std::string, CommandRecord> records;
+    CompletionCallback completionCallback;
 
 public:
     void addQueued(const Command& command)
     {
         CommandRecord record;
         record.requestId = command.requestId;
+        record.mqttCorrelationId = command.mqttCorrelationId;
         record.cameraId = command.cameraId;
         record.operation = command.operation;
         record.createdAt = std::chrono::system_clock::now();
 
         std::lock_guard<std::mutex> lock(mutex);
-        records.emplace(record.requestId, std::move(record));
+        if (!records.emplace(record.requestId, std::move(record)).second)
+        {
+            throw std::logic_error("A request with this ID already exists");
+        }
+    }
+
+    void setCompletionCallback(CompletionCallback callback)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        completionCallback = std::move(callback);
     }
 
     void updateCommandDetails(const std::string& requestId,
@@ -94,27 +112,66 @@ public:
 
     void complete(const std::string& requestId, OperationResult result)
     {
-        std::lock_guard<std::mutex> lock(mutex);
-        const auto record = records.find(requestId);
-        if (record == records.end())
+        CommandRecord completedRecord;
+        CompletionCallback callback;
         {
-            return;
+            std::lock_guard<std::mutex> lock(mutex);
+            const auto record = records.find(requestId);
+            if (record == records.end()
+                || record->second.status == RequestStatus::success
+                || record->second.status == RequestStatus::failed)
+            {
+                return;
+            }
+
+            record->second.status = result.succeeded
+                ? RequestStatus::success
+                : RequestStatus::failed;
+            if (result.succeeded)
+            {
+                if (result.discoverySummary)
+                {
+                    record->second.discoverySummary =
+                        std::move(result.discoverySummary);
+                }
+                else
+                {
+                    record->second.deviceInformation =
+                        std::move(result.deviceInformation);
+                    record->second.pairedDevices =
+                        std::move(result.pairedDevices);
+                }
+            }
+            else
+            {
+                record->second.errorCategory = std::move(result.errorCategory);
+                record->second.errorMessage = std::move(result.errorMessage);
+            }
+            record->second.completedAt = std::chrono::system_clock::now();
+            if (record->second.mqttCorrelationId)
+            {
+                completedRecord = record->second;
+                callback = completionCallback;
+            }
         }
 
-        record->second.status = result.succeeded
-            ? RequestStatus::success
-            : RequestStatus::failed;
-        if (result.succeeded)
+        if (callback)
         {
-            record->second.deviceInformation = std::move(result.deviceInformation);
-            record->second.pairedDevices = std::move(result.pairedDevices);
+            try
+            {
+                callback(completedRecord);
+            }
+            catch (const std::exception& error)
+            {
+                std::cerr << "[ResultStore] Completion notification failed for "
+                          << requestId << ": " << error.what() << std::endl;
+            }
+            catch (...)
+            {
+                std::cerr << "[ResultStore] Completion notification failed for "
+                          << requestId << ": unknown exception" << std::endl;
+            }
         }
-        else
-        {
-            record->second.errorCategory = std::move(result.errorCategory);
-            record->second.errorMessage = std::move(result.errorMessage);
-        }
-        record->second.completedAt = std::chrono::system_clock::now();
     }
 
     std::optional<CommandRecord> find(const std::string& requestId) const

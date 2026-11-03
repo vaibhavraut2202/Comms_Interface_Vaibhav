@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "command_queue.hpp"
-#include "device_config.hpp"
 #include "dispatcher.hpp"
 #include "json_utils.hpp"
 #include "operation_result.hpp"
@@ -22,7 +21,6 @@ private:
     CommandQueue& commandQueue;
     Dispatcher& dispatcher;
     ResultStore& resultStore;
-    const DeviceRegistry& devices;
     std::thread workerThread;
 
     static std::string trim(const std::string& value)
@@ -83,7 +81,8 @@ private:
                 command.operation + " is recognized but not implemented");
         }
         if (command.operation != "GetDeviceInformation"
-            && command.operation != "GetCurrentPairedDevices")
+            && command.operation != "GetCurrentPairedDevices"
+            && command.operation != "DiscoverDevices")
         {
             return OperationResult::failure(
                 "UNKNOWN_OPERATION",
@@ -105,6 +104,16 @@ private:
             return std::nullopt;
         }
 
+        if (command.operation == "DiscoverDevices")
+        {
+            if (cameraField != fields.end() && !cameraField->second)
+            {
+                return OperationResult::failure(
+                    "INVALID_FIELD_TYPE", "camera_id must be a JSON string");
+            }
+            return std::nullopt;
+        }
+
         if (cameraField == fields.end())
         {
             return OperationResult::failure(
@@ -121,14 +130,6 @@ private:
                 "INVALID_FIELD", "camera_id must not be empty");
         }
 
-        const auto device = devices.find(command.cameraId);
-        if (!device)
-        {
-            return OperationResult::failure(
-                "UNKNOWN_CAMERA",
-                "No configured camera has ID " + command.cameraId);
-        }
-        command.endpoint = device->endpoint;
         return std::nullopt;
     }
 
@@ -184,12 +185,10 @@ private:
     }
 
 public:
-    Worker(CommandQueue& queue, Dispatcher& dispatcher, ResultStore& results,
-           const DeviceRegistry& deviceRegistry)
+    Worker(CommandQueue& queue, Dispatcher& dispatcher, ResultStore& results)
         : commandQueue(queue),
           dispatcher(dispatcher),
-          resultStore(results),
-          devices(deviceRegistry)
+          resultStore(results)
     {
     }
 

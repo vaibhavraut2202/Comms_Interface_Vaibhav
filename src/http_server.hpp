@@ -4,7 +4,6 @@
 #include <ws2tcpip.h>
 
 #include <algorithm>
-#include <atomic>
 #include <charconv>
 #include <chrono>
 #include <cctype>
@@ -22,8 +21,8 @@
 #include <vector>
 
 #include "command.hpp"
-#include "command_queue.hpp"
 #include "json_utils.hpp"
+#include "request_submission.hpp"
 #include "result_store.hpp"
 
 class WinsockRuntime
@@ -76,10 +75,8 @@ private:
 
     static constexpr std::size_t maximumHeaderSize = 16 * 1024;
     static constexpr std::size_t maximumBodySize = 16 * 1024;
-    static std::atomic<std::uint64_t> nextRequestId;
-
     HttpServerConfig config;
-    CommandQueue& commandQueue;
+    RequestSubmissionService& requestSubmission;
     ResultStore& resultStore;
 
     static std::string lower(std::string value)
@@ -293,14 +290,6 @@ private:
         return true;
     }
 
-    static std::string makeRequestId()
-    {
-        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        return "req-" + std::to_string(now) + "-"
-            + std::to_string(nextRequestId.fetch_add(1));
-    }
-
     static std::string formatTime(std::chrono::system_clock::time_point time)
     {
         const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -367,6 +356,16 @@ private:
                  << "\",\"firmware_version\":\"" << jsonEscape(info.firmwareVersion)
                  << "\",\"serial_number\":\"" << jsonEscape(info.serialNumber)
                  << "\",\"hardware_id\":\"" << jsonEscape(info.hardwareId) << "\"}";
+        }
+        else if (record.discoverySummary)
+        {
+            const DiscoverySummary& summary = *record.discoverySummary;
+            json << ",\"data\":{\"discovered_count\":"
+                 << summary.discoveredCount
+                 << ",\"information_success_count\":"
+                 << summary.informationSuccessCount
+                 << ",\"information_failure_count\":"
+                 << summary.informationFailureCount << '}';
         }
         else
         {
@@ -471,40 +470,18 @@ private:
                                  "POST requests require Content-Length");
         }
 
-        Command command;
-        command.requestId = makeRequestId();
-        command.rawRequestBody = request.body;
-        resultStore.addQueued(command);
-        try
+        const SubmissionResult submitted = requestSubmission.submitHttp(request.body);
+        if (!submitted.accepted)
         {
-            if (!commandQueue.push(command))
-            {
-                resultStore.complete(command.requestId, OperationResult::failure(
-                    "SERVER_SHUTDOWN", "Application is shutting down"));
-                return errorResponse(503, "SERVER_SHUTDOWN",
-                                     "Application is no longer accepting commands");
-            }
-        }
-        catch (const std::exception& error)
-        {
-            std::cerr << "[HTTP] Unable to enqueue request " << command.requestId
-                      << ": " << error.what() << std::endl;
-            resultStore.complete(command.requestId, OperationResult::failure(
-                "QUEUE_ERROR", "Unable to enqueue request"));
-            return errorResponse(503, "QUEUE_ERROR", "Unable to enqueue request");
-        }
-        catch (...)
-        {
-            std::cerr << "[HTTP] Unable to enqueue request " << command.requestId
-                      << ": unknown exception" << std::endl;
-            resultStore.complete(command.requestId, OperationResult::failure(
-                "QUEUE_ERROR", "Unable to enqueue request"));
-            return errorResponse(503, "QUEUE_ERROR", "Unable to enqueue request");
+            std::cerr << "[HTTP] Unable to enqueue request " << submitted.requestId
+                      << ": " << submitted.errorMessage << std::endl;
+            return errorResponse(503, submitted.errorCategory,
+                                 submitted.errorMessage);
         }
 
         HttpResponse response;
         response.status = 202;
-        response.body = "{\"request_id\":\"" + jsonEscape(command.requestId)
+        response.body = "{\"request_id\":\"" + jsonEscape(submitted.requestId)
             + "\",\"status\":\"QUEUED\"}";
         return response;
     }
@@ -608,10 +585,11 @@ private:
     }
 
 public:
-    HttpServer(const HttpServerConfig& serverConfig, CommandQueue& queue,
+    HttpServer(const HttpServerConfig& serverConfig,
+               RequestSubmissionService& submission,
                ResultStore& results)
         : config(serverConfig),
-          commandQueue(queue),
+          requestSubmission(submission),
           resultStore(results)
     {
     }
@@ -694,5 +672,3 @@ public:
         return 0;
     }
 };
-
-inline std::atomic<std::uint64_t> HttpServer::nextRequestId{1};

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -20,11 +22,29 @@ struct PairedDevice
     std::string ipAddress;
 };
 
+struct DiscoveredDevice
+{
+    std::string endpointReference;
+    std::vector<std::string> types;
+    std::vector<std::string> scopes;
+    std::vector<std::string> xAddrs;
+    std::vector<std::string> responseSourceAddresses;
+    std::uint32_t metadataVersion = 0;
+};
+
+struct DiscoverySummary
+{
+    std::size_t discoveredCount = 0;
+    std::size_t informationSuccessCount = 0;
+    std::size_t informationFailureCount = 0;
+};
+
 struct OperationResult
 {
     bool succeeded = false;
     DeviceInformation deviceInformation;
     std::optional<std::vector<PairedDevice>> pairedDevices;
+    std::optional<DiscoverySummary> discoverySummary;
     std::string errorCategory;
     std::string errorMessage;
 
@@ -41,6 +61,14 @@ struct OperationResult
         OperationResult result;
         result.succeeded = true;
         result.pairedDevices = std::move(devices);
+        return result;
+    }
+
+    static OperationResult discoverySuccess(DiscoverySummary summary)
+    {
+        OperationResult result;
+        result.succeeded = true;
+        result.discoverySummary = summary;
         return result;
     }
 
